@@ -21,7 +21,7 @@ jobs:
       - name: Setup | Add SSH known hosts
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -t ed25519,rsa ${{ secrets.TT_GITLAB_REPO_SERVER_URL }} >> ~/.ssh/known_hosts
+          ssh-keyscan -t ed25519,rsa ${{ secrets.TT_GITLAB_REPO_SERVER_ADDR }} >> ~/.ssh/known_hosts
 
       - name: Setup | Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
