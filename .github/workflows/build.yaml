@@ -110,7 +110,7 @@ jobs:
           sops --version
 
       - name: Publish | Run Terragrunt Deployment
-        working-directory: repo/infrastructure/stacks/default/aws/ecs-cluster
+        working-directory: repo/infrastructure/stacks/default/aws/platform/ecs-cluster
         env:
           API_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
           WEB_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
