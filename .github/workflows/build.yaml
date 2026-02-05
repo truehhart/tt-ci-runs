@@ -110,9 +110,11 @@ jobs:
           sops --version
 
       - name: Publish | Run Terragrunt Deployment
-        working-directory: repo/infrastructure/stacks/default/ecs-cluster
+        working-directory: repo/infrastructure/stacks/default/aws/ecs-cluster
         env:
           API_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
           WEB_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
         run: |
-          terragrunt apply -auto-approve
+          terragrunt plan
+
+# apply -auto-approve
