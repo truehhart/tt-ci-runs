@@ -1,11 +1,2 @@
-/.idea/.gitignore
-/.idea/aws.xml
-/.idea/jpa-buddy.xml
-/.idea/misc.xml
-/.idea/modules.xml
-/.idea/mostly-ci.iml
-/.idea/vcs.xml
-.DS_Store
-complete_sbom_report.json
-sbom_report.csv
-__pycache__
+temp
+temp.sh
