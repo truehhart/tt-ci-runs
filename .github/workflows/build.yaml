@@ -111,6 +111,7 @@ jobs:
 
       - name: Setup | Install Terragrunt
         uses: gruntwork-io/terragrunt-action@5e86476ca61eaf74adb9c0525745f29f921f2199 # v3.1.0
+        with: { tg_version: "0.99.1", tofu_version: "1.11.4" }
 
       - name: Publish | Run Terragrunt Deployment
         working-directory: repo/infrastructure/stacks/default/aws/platform/ecs-cluster
