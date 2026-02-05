@@ -15,7 +15,7 @@ on:
       - "mock/services/web"
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,6 +24,13 @@ jobs:
     strategy:
       matrix:
         target: [web, api]
+        include:
+          - target: web
+            healthcheck_path: /healthz
+            env_vars: -e PORT=8080 -e API_HOST=http://localhost:8080
+          - target: api
+            healthcheck_path: /api/healthz
+            env_vars: -e PORT=8080 -e DBUSER=test -e DB=test -e DBPASS=test -e DBHOST=localhost -e DBPORT=5432
     steps:
       - name: Setup | Add SSH known hosts
         run: |
@@ -51,7 +58,7 @@ jobs:
 
       - name: Setup | Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-        with: { platforms: linux/arm64 }
+        with: { platforms: "linux/amd64,linux/arm64" }
 
       - name: Setup | Log in to ECR
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
@@ -60,7 +67,7 @@ jobs:
           username: ${{ secrets.AWS_ACCESS_KEY_ID }}
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Setup | Build Docker Image
+      - name: Build | Build and push multi-arch image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
         env:
           DOCKER_BUILD_SUMMARY: "false"
@@ -73,10 +80,43 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           push: true
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
+
+      - name: Test | Run container and health check
+        run: |
+          echo "Starting ${{ matrix.target }} container..."
+          docker run -d --name test-container \
+            ${{ matrix.env_vars }} \
+            -p 8080:8080 \
+            ${{ secrets.ECR_REGISTRY_URL }}/${{ matrix.target }}:${{ steps.meta.outputs.version }}
+
+          echo "Waiting for container to be ready..."
+          sleep 5
+
+          echo "Checking container logs..."
+          docker logs test-container
+
+          echo "Running health check on ${{ matrix.healthcheck_path }}..."
+          for i in {1..10}; do
+            if curl -sf http://localhost:8080${{ matrix.healthcheck_path }}; then
+              echo ""
+              echo "Health check passed!"
+              docker stop test-container
+              docker rm test-container
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 2s..."
+            sleep 2
+          done
+
+          echo "Health check failed after 10 attempts"
+          docker logs test-container
+          docker stop test-container
+          docker rm test-container
+          exit 1
 
   publish:
-    needs: build
+    needs: build-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -116,8 +156,8 @@ jobs:
       - name: Publish | Run Terragrunt Deployment
         working-directory: repo/infrastructure/stacks/default/aws/platform/ecs-cluster
         env:
-          API_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
-          WEB_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          API_IMAGE_TAG: ${{ needs.build-and-test.outputs.image_tag }}
+          WEB_IMAGE_TAG: ${{ needs.build-and-test.outputs.image_tag }}
           TG_PROVIDER_CACHE: 1
         run: |
           terragrunt apply -auto-approve
