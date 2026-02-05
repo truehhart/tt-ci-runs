@@ -38,7 +38,7 @@ jobs:
         with:
           images: ${{ secrets.ECR_REGISTRY_URL }}/${{ matrix.target }}
           tags: |
-            suffix=-${{ github.run_id }}-${{ github.run_attempt }}
+            type=raw,value=${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Setup | Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
