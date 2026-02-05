@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      image_tag: ${{ steps.meta.outputs.version }
+      image_tag: ${{ steps.meta.outputs.version }}
     strategy:
       matrix:
         target: [web, api]
