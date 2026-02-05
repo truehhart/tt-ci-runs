@@ -1,0 +1,123 @@
+name: Build API and Web images
+
+on:
+  workflow_dispatch:
+    inputs:
+      SOURCE_REPOSITORY_REF:
+        description: "The branch, tag, or commit to build from the source repository."
+        required: true
+        default: "main"
+  # * Has no effect since most are in another repo without CI, it's here for the sake of the example.
+  push:
+    paths:
+      - ".github/workflows/build.yaml"
+      - "mock/services/api"
+      - "mock/services/web"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+    strategy:
+      matrix:
+        target: [web, api]
+    steps:
+      - name: Setup | Add SSH known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -t ed25519,rsa ${{ secrets.TT_GITLAB_REPO_SERVER_ADDR }} >> ~/.ssh/known_hosts
+
+      - name: Setup | Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          repository: ${{ secrets.TT_GITLAB_REPO_NAME }}
+          github-server-url: https://${{ secrets.TT_GITLAB_REPO_SERVER_ADDR }}
+          submodules: false
+          path: repo
+          ssh-key: ${{ secrets.TT_GITLAB_KEY }}
+          ref: ${{ inputs.SOURCE_REPOSITORY_REF }}
+
+      - name: Setup | Docker Build Metadata
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v.5.10.0
+        id: meta
+        with:
+          images: ${{ secrets.ECR_REGISTRY_URL }}/${{ matrix.target }}
+          tags: |
+            type=raw,value=${{ github.run_id }}-${{ github.run_attempt }}
+            type=raw,value=latest
+
+      - name: Setup | Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with: { platforms: linux/arm64 }
+
+      - name: Setup | Log in to ECR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ${{ secrets.ECR_REGISTRY_URL }}
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Setup | Build Docker Image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
+        env:
+          DOCKER_BUILD_SUMMARY: "false"
+          DOCKER_BUILD_CHECKS_ANNOTATIONS: "false"
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: repo/services/${{ matrix.target }}
+          file: repo/services/${{ matrix.target }}/Dockerfile
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          push: true
+          platforms: linux/arm64
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Setup | Add SSH known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -t ed25519,rsa ${{ secrets.TT_GITLAB_REPO_SERVER_ADDR }} >> ~/.ssh/known_hosts
+
+      - name: Setup | Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          repository: ${{ secrets.TT_GITLAB_REPO_NAME }}
+          github-server-url: https://${{ secrets.TT_GITLAB_REPO_SERVER_ADDR }}
+          submodules: false
+          path: repo
+          ssh-key: ${{ secrets.TT_GITLAB_KEY }}
+          ref: ${{ inputs.SOURCE_REPOSITORY_REF }}
+
+      - name: Setup | Import SOPS GPG key
+        run: |
+          echo "${{ secrets.TT_GITLAB_REPO_SOPS_KEY }}" | gpg --batch --import
+          gpg --list-secret-keys
+
+      - name: Setup | Install SOPS
+        run: |
+          SOPS_VERSION="3.9.0"
+          wget -q https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
+          sudo mv sops-v${SOPS_VERSION}.linux.amd64 /usr/local/bin/sops
+          sudo chmod +x /usr/local/bin/sops
+          sops --version
+
+      - name: Setup | Install Terragrunt
+        uses: gruntwork-io/terragrunt-action@5e86476ca61eaf74adb9c0525745f29f921f2199 # v3.1.0
+        with: { tg_version: "0.99.1", tofu_version: "1.11.4" }
+
+      - name: Publish | Run Terragrunt Deployment
+        working-directory: repo/infrastructure/stacks/default/aws/platform/ecs-cluster
+        env:
+          API_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          WEB_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          TG_PROVIDER_CACHE: 1
+        run: |
+          terragrunt apply -auto-approve
